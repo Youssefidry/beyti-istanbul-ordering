@@ -6,6 +6,7 @@ let scanner;
 let currentOrderToken = "";
 let savedStaffProfile = { name: "", avatarData: null };
 let selectedStaffAvatarData = null;
+let tableRequestPoll;
 
 function makeElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -103,6 +104,13 @@ function showWorkspace(authenticated) {
   byId("staff-intro").classList.toggle("hidden", authenticated);
   loginPanel.classList.toggle("hidden", authenticated);
   workspace.classList.toggle("hidden", !authenticated);
+  if (authenticated) {
+    void loadTableRequests();
+    if (!tableRequestPoll) tableRequestPoll = window.setInterval(() => { void loadTableRequests(); }, 20000);
+  } else if (tableRequestPoll) {
+    window.clearInterval(tableRequestPoll);
+    tableRequestPoll = null;
+  }
 }
 
 function setStaffSettingsSuccess(message) {
@@ -131,6 +139,53 @@ function tokenFromScan(value) {
     return url.origin === window.location.origin && match ? match[1] : null;
   } catch {
     return null;
+  }
+}
+
+function orderCodeFromInput(value) {
+  const code = value.replace(/[\s-]/g, "").toUpperCase();
+  return /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/.test(code) ? code : null;
+}
+
+async function loadTableRequests() {
+  if (workspace.classList.contains("hidden")) return;
+  const list = byId("table-requests-list");
+  try {
+    const requests = await api("/api/staff/table-requests");
+    hideMessage(byId("table-requests-message"));
+    list.replaceChildren();
+    if (requests.length === 0) {
+      list.append(makeElement("p", "form-note", "لا توجد طلبات مفتوحة من الطاولات."));
+      return;
+    }
+
+    requests.forEach((request) => {
+      const card = makeElement("article", "table-request-card");
+      const details = makeElement("div", "table-request-details");
+      const title = request.type === "waiter" ? "نادِ النادل" : "طلب الحساب";
+      details.append(
+        makeElement("strong", "", `الطاولة ${new Intl.NumberFormat("ar-DZ").format(request.tableNumber)} · ${title}`),
+        makeElement("span", "", new Date(request.createdAt).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" }))
+      );
+      const complete = makeElement("button", "small-action", "تمت المعالجة");
+      complete.type = "button";
+      complete.addEventListener("click", () => { void completeTableRequest(request.id, complete); });
+      card.append(details, complete);
+      list.append(card);
+    });
+  } catch (error) {
+    if (!workspace.classList.contains("hidden")) showMessage(byId("table-requests-message"), error.message);
+  }
+}
+
+async function completeTableRequest(id, button) {
+  button.disabled = true;
+  try {
+    await api(`/api/staff/table-requests/${id}/complete`, { method: "POST" });
+    await loadTableRequests();
+  } catch (error) {
+    showMessage(byId("table-requests-message"), error.message);
+    button.disabled = false;
   }
 }
 
@@ -166,14 +221,31 @@ function renderOrder(order) {
   const items = makeElement("div", "order-lines");
   order.items.forEach((item) => {
     const row = makeElement("div", "order-line");
-    row.append(makeElement("span", "", `${item.name} × ${new Intl.NumberFormat("ar-DZ").format(item.quantity)}`));
-    row.append(makeMoneyElement(item.subtotal, "strong"));
+    const name = makeElement("div", "order-line-name");
+    if (item.imageData) {
+      const image = makeElement("img", "order-item-photo");
+      image.src = item.imageData;
+      image.alt = "";
+      image.addEventListener("error", () => {
+        image.replaceWith(makeElement("span", "order-item-placeholder", "🍽"));
+      }, { once: true });
+      name.append(image);
+    } else {
+      name.append(makeElement("span", "order-item-placeholder", "🍽"));
+    }
+    const itemCopy = makeElement("div", "order-line-copy");
+    itemCopy.append(makeElement("span", "order-line-label", `${item.name} × ${new Intl.NumberFormat("ar-DZ").format(item.quantity)}`));
+    if (item.notes) itemCopy.append(makeElement("span", "order-line-note", item.notes));
+    name.append(itemCopy);
+    row.append(name, makeMoneyElement(item.subtotal, "strong"));
     items.append(row);
   });
   const total = makeElement("div", "order-result-total");
   total.append(makeElement("span", "", "المجموع"), makeMoneyElement(order.total, "strong"));
 
-  result.replaceChildren(heading, details, items, total);
+  result.replaceChildren(heading, details, items);
+  if (order.notes) result.append(makeElement("p", "order-note-banner", `ملاحظة الطلب: ${order.notes}`));
+  result.append(total);
   if (order.status === "confirmed") {
     result.append(makeElement("div", "order-confirmed-note", "تم تأكيد هذا الطلب مسبقًا، ولا يمكن اعتماده مرة أخرى."));
     return;
@@ -188,14 +260,19 @@ function renderOrder(order) {
 
 async function lookupOrder(token) {
   hideMessage(staffMessage);
-  const normalizedToken = tokenFromScan(token);
-  if (!normalizedToken) {
-    showMessage(staffMessage, "رمز غير صالح. امسح رمز طلب من سفرة أو الصق رابطه.");
+  const code = orderCodeFromInput(token);
+  const normalizedToken = code ? null : tokenFromScan(token);
+  if (!code && !normalizedToken) {
+    showMessage(staffMessage, "رمز غير صالح. أدخل الرمز أسفل QR أو الصق رابط الطلب.");
     return;
   }
 
   try {
-    const order = await api(`/api/staff/orders/${encodeURIComponent(normalizedToken)}`);
+    const endpoint = code
+      ? `/api/staff/orders/by-code/${encodeURIComponent(code)}`
+      : `/api/staff/orders/${encodeURIComponent(normalizedToken)}`;
+    const order = await api(endpoint);
+    if (code) byId("order-token").value = "";
     renderOrder(order);
   } catch (error) {
     showMessage(staffMessage, error.message);

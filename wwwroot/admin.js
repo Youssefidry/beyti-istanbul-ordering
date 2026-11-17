@@ -8,6 +8,7 @@ let staffAccounts = [];
 let currentMenuImageData = null;
 let selectedMenuImageData = null;
 let savedSiteSettings = { theme: "sufra", siteName: "سفرة", logoData: null };
+let siteSettingsLoaded = false;
 let savedAdminProfile = { displayName: "مدير سفرة", avatarData: null };
 let selectedSiteLogoData = null;
 let selectedAdminAvatarData = null;
@@ -109,7 +110,7 @@ function closeSiteSettings() {
   byId("site-logo-remove").checked = false;
   selectedSiteLogoData = null;
   showImagePreview("site-logo-preview", "site-logo-placeholder", savedSiteSettings.logoData, "سيظهر الحرف الأول من الاسم افتراضيًا");
-  window.applySiteSettings(savedSiteSettings);
+  if (siteSettingsLoaded) window.applySiteSettings(savedSiteSettings);
   if (savedAdminProfile) {
     byId("admin-profile-name").value = savedAdminProfile.displayName;
     showImagePreview("admin-profile-preview", "admin-profile-placeholder", savedAdminProfile.avatarData, "اختر صورة شخصية");
@@ -230,10 +231,22 @@ function resetMenuForm() {
 }
 
 function editMenu(item) {
+  const arabic = item.translations?.ar ?? {};
+  const french = item.translations?.fr ?? {};
+  const english = item.translations?.en ?? {};
   byId("menu-id").value = item.id;
-  byId("menu-name").value = item.name;
-  byId("menu-description").value = item.description;
-  byId("menu-category").value = item.category;
+  byId("menu-name").value = arabic.name || item.name;
+  byId("menu-description").value = arabic.description || item.description;
+  byId("menu-category").value = arabic.category || item.category;
+  byId("menu-allergens-ar").value = arabic.allergens || "";
+  byId("menu-name-fr").value = french.name || "";
+  byId("menu-description-fr").value = french.description || "";
+  byId("menu-category-fr").value = french.category || "";
+  byId("menu-allergens-fr").value = french.allergens || "";
+  byId("menu-name-en").value = english.name || "";
+  byId("menu-description-en").value = english.description || "";
+  byId("menu-category-en").value = english.category || "";
+  byId("menu-allergens-en").value = english.allergens || "";
   byId("menu-price").value = item.price;
   byId("menu-image").value = "";
   byId("menu-image").required = false;
@@ -241,6 +254,10 @@ function editMenu(item) {
   selectedMenuImageData = null;
   showMenuImagePreview(currentMenuImageData, "لا توجد صورة محفوظة؛ اختر صورة للطبق.");
   byId("menu-available").checked = item.isAvailable;
+  byId("menu-badge-popular").checked = item.badges?.includes("popular") ?? false;
+  byId("menu-badge-new").checked = item.badges?.includes("new") ?? false;
+  byId("menu-badge-spicy").checked = item.badges?.includes("spicy") ?? false;
+  byId("menu-badge-vegetarian").checked = item.badges?.includes("vegetarian") ?? false;
   byId("menu-form-title").textContent = "تعديل بيانات الطبق";
   byId("menu-submit").textContent = "حفظ التعديلات";
   byId("menu-cancel").classList.remove("hidden");
@@ -259,6 +276,7 @@ async function loadSiteSettings() {
   if (!selected) throw new Error("إعداد ثيم الموقع غير معروف.");
   selected.checked = true;
   savedSiteSettings = settings;
+  siteSettingsLoaded = true;
   byId("site-name").value = settings.siteName;
   byId("site-logo").value = "";
   byId("site-logo-remove").checked = false;
@@ -284,14 +302,14 @@ async function loadAdminProfile() {
 async function setMenuAvailability(item, isAvailable) {
   hideMessage(adminMessage);
   try {
-    if (!isAvailable && !window.confirm(`هل تريد إيقاف «${item.name}» من قائمة الزبائن؟`)) return;
+    if (!isAvailable && !window.confirm(`هل تريد إظهار «${item.name}» للزبون بحالة «نفد اليوم»؟`)) return;
     await api(`/api/admin/menu/${encodeURIComponent(item.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...item, imageData: null, isAvailable })
     });
     await loadMenu();
-    setSuccess(isAvailable ? "تمت إعادة الطبق إلى القائمة." : "تم إيقاف الطبق؛ بقي محفوظًا في الطلبات السابقة.");
+    setSuccess(isAvailable ? "تمت إعادة الطبق إلى القائمة." : "سيظهر الطبق للزبائن بحالة «نفد اليوم».");
   } catch (error) {
     showMessage(adminMessage, error.message);
   }
@@ -372,6 +390,13 @@ function editStaff(staff) {
 async function loadStaff() {
   staffAccounts = await api("/api/admin/staff");
   renderStaff();
+  const filter = byId("orders-staff-filter");
+  const selectedStaffId = filter.value;
+  filter.replaceChildren(new Option("جميع الموظفين", ""));
+  staffAccounts.forEach((staff) => filter.add(new Option(staff.name, String(staff.id))));
+  if ([...filter.options].some((option) => option.value === selectedStaffId)) {
+    filter.value = selectedStaffId;
+  }
 }
 
 async function setStaffAvailability(staff, isActive) {
@@ -394,43 +419,174 @@ function renderOrders(orders) {
   const list = byId("admin-orders-list");
   list.replaceChildren();
   if (orders.length === 0) {
-    list.append(makeElement("div", "admin-empty", "لا توجد طلبات محفوظة بعد."));
+    list.append(makeElement("div", "admin-empty", "لا توجد طلبات منجزة تطابق المرشحات."));
     return;
   }
 
   orders.forEach((order) => {
-    const card = makeElement("article", "admin-order-card");
+    const card = makeElement("button", "admin-order-card");
+    card.type = "button";
     const header = makeElement("div", "admin-order-header");
-    const orderLabel = makeElement("strong", "", `طلب ${new Intl.NumberFormat("ar-DZ").format(order.id)}`);
-    const status = makeElement("span", `record-status${order.status === "confirmed" ? " active" : ""}`,
-      order.status === "confirmed" ? "مؤكد" : "بانتظار التأكيد");
-    header.append(orderLabel, status);
+    header.append(makeElement("strong", "", `طلب ${new Intl.NumberFormat("ar-DZ").format(order.id)}`));
     const orderDetails = [order.customerName];
     if (order.tableNumber != null) {
       orderDetails.push(`الطاولة ${new Intl.NumberFormat("ar-DZ").format(order.tableNumber)}`);
     }
-    orderDetails.push(new Date(order.createdAt).toLocaleString("ar-DZ"));
+    orderDetails.push(`أُنجز ${formatOrderDate(order.confirmedAt)}`);
+    if (order.staffName) orderDetails.push(order.staffName);
     const meta = makeElement("div", "admin-order-meta", orderDetails.join(" · "));
-    const items = makeElement("div", "admin-order-items");
-    order.items.forEach((item) => {
-      items.append(makeElement("span", "", `${item.name} × ${new Intl.NumberFormat("ar-DZ").format(item.quantity)}`));
-    });
     const total = makeMoneyElement(order.total, "strong", "admin-order-total");
-    card.append(header, meta, items, total);
+    card.append(header, meta, total);
+    card.addEventListener("click", () => { void showOrderTicket(order); });
     list.append(card);
   });
 }
 
+function formatOrderDate(value) {
+  if (!value) return "غير مسجل";
+  return new Date(value).toLocaleString("ar-DZ", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function getLocalDateRange(dateValue) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const from = new Date(year, month - 1, day);
+  const to = new Date(year, month - 1, day + 1);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+async function showOrderTicket(order) {
+  hideMessage(adminMessage);
+  try {
+    const details = await api(`/api/admin/orders/${order.id}`);
+    byId("ticket-title").textContent = `طلب ${new Intl.NumberFormat("ar-DZ").format(details.id)}`;
+    const meta = byId("ticket-meta");
+    meta.replaceChildren();
+    [
+      `الزبون: ${details.customerName}`,
+      details.tableNumber == null ? null : `الطاولة: ${new Intl.NumberFormat("ar-DZ").format(details.tableNumber)}`,
+      `وقت إنشاء الطلب: ${formatOrderDate(details.createdAt)}`,
+      `وقت التأكيد: ${formatOrderDate(details.confirmedAt)}`,
+      `الموظف: ${details.staffName || "غير مسجل — تم تأكيده قبل تفعيل تسجيل الموظف"}`,
+      details.notes ? `ملاحظة الطلب: ${details.notes}` : null
+    ].filter(Boolean).forEach((detail) => meta.append(makeElement("p", "", detail)));
+
+    const items = byId("ticket-items");
+    items.replaceChildren();
+    details.items.forEach((item) => {
+      const row = makeElement("div", "ticket-item");
+      const name = makeElement("div", "ticket-item-name");
+      if (item.imageData) {
+        const image = makeElement("img", "order-item-photo");
+        image.src = item.imageData;
+        image.alt = "";
+        image.addEventListener("error", () => {
+          image.replaceWith(makeElement("span", "order-item-placeholder", "🍽"));
+        }, { once: true });
+        name.append(image);
+      } else {
+        name.append(makeElement("span", "order-item-placeholder", "🍽"));
+      }
+      const itemCopy = makeElement("div", "ticket-item-copy");
+      itemCopy.append(makeElement("span", "ticket-item-label", `${item.name} × ${new Intl.NumberFormat("ar-DZ").format(item.quantity)}`));
+      if (item.notes) itemCopy.append(makeElement("span", "ticket-item-note", item.notes));
+      name.append(itemCopy);
+      row.append(name, makeMoneyElement(item.subtotal));
+      items.append(row);
+    });
+    byId("ticket-total").textContent = `${new Intl.NumberFormat("ar-DZ").format(details.total)} درهم`;
+    byId("admin-order-ticket").showModal();
+  } catch (error) {
+    showMessage(adminMessage, error.message);
+  }
+}
+
+function renderOrderStats(stats) {
+  const staffTotal = staffAccounts.length;
+  const activeStaff = staffAccounts.filter((staff) => staff.isActive).length;
+  const cards = [
+    ["الموظفون النشطون", `${new Intl.NumberFormat("ar-DZ").format(activeStaff)} / ${new Intl.NumberFormat("ar-DZ").format(staffTotal)}`],
+    ["الطلبات المنجزة اليوم", new Intl.NumberFormat("ar-DZ").format(stats.completedOrders)],
+    ["قيمة الطلبات المنجزة اليوم", `${new Intl.NumberFormat("ar-DZ").format(stats.revenue)} درهم`]
+  ];
+  const summary = byId("admin-order-stats");
+  summary.replaceChildren();
+  cards.forEach(([label, value]) => {
+    const card = makeElement("article", "order-stat-card");
+    card.append(makeElement("span", "", label), makeElement("strong", "", value));
+    summary.append(card);
+  });
+
+  const employeeList = byId("admin-employee-stats");
+  employeeList.replaceChildren();
+  if (stats.employees.length === 0) {
+    employeeList.append(makeElement("div", "admin-empty", "لا توجد حسابات موظفين."));
+  } else {
+    stats.employees.forEach((employee) => {
+      const card = makeElement("article", "employee-stat-card");
+      const heading = makeElement("div", "employee-stat-heading");
+      heading.append(
+        makeElement("strong", "", employee.name),
+        makeElement("span", "record-status", employee.isActive ? "نشط" : "معطل")
+      );
+      card.append(
+        heading,
+        makeElement("span", "", `${new Intl.NumberFormat("ar-DZ").format(employee.completedOrders)} طلب`),
+        makeElement("strong", "", `${new Intl.NumberFormat("ar-DZ").format(employee.revenue)} درهم`)
+      );
+      employeeList.append(card);
+    });
+  }
+
+  const note = byId("unattributed-orders-note");
+  if (stats.unattributedOrders > 0) {
+    note.textContent = `${new Intl.NumberFormat("ar-DZ").format(stats.unattributedOrders)} طلبًا منجزًا في هذا اليوم لا يملك اسم موظف محفوظًا من النظام السابق.`;
+    note.classList.remove("hidden");
+  } else {
+    note.textContent = "";
+    note.classList.add("hidden");
+  }
+}
+
 async function loadOrders() {
   byId("admin-orders-list").replaceChildren(makeElement("div", "admin-empty", "جارٍ تحميل الطلبات..."));
-  const orders = await api("/api/admin/orders");
+  const query = new URLSearchParams();
+  const selectedStaffId = byId("orders-staff-filter").value;
+  const selectedDate = byId("orders-date-filter").value;
+  if (selectedStaffId) query.set("staffId", selectedStaffId);
+  if (selectedDate) {
+    const range = getLocalDateRange(selectedDate);
+    query.set("from", range.from);
+    query.set("to", range.to);
+  }
+  const orders = await api(`/api/admin/orders${query.size ? `?${query}` : ""}`);
   renderOrders(orders);
+}
+
+async function loadOrderStats() {
+  const today = new Date();
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const to = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const query = new URLSearchParams({
+    from: from.toISOString().replace(/\.\d{3}Z$/, "Z"),
+    to: to.toISOString().replace(/\.\d{3}Z$/, "Z")
+  });
+  const stats = await api(`/api/admin/order-stats?${query}`);
+  renderOrderStats(stats);
+}
+
+async function refreshOrders() {
+  try {
+    await Promise.all([loadOrders(), loadOrderStats()]);
+  } catch (error) {
+    showMessage(adminMessage, error.message);
+  }
 }
 
 async function loadWorkspace() {
   hideMessage(adminMessage);
   try {
-    await Promise.all([loadMenu(), loadStaff(), loadOrders(), loadSiteSettings(), loadAdminProfile()]);
+    await loadStaff();
+    await Promise.all([loadMenu(), loadOrders(), loadOrderStats(), loadSiteSettings(), loadAdminProfile()]);
     showWorkspace(true);
   } catch (error) {
     showWorkspace(false);
@@ -664,7 +820,33 @@ byId("menu-form").addEventListener("submit", async (event) => {
     category: byId("menu-category").value,
     price: Number(byId("menu-price").value),
     imageData: selectedMenuImageData,
-    isAvailable: byId("menu-available").checked
+    isAvailable: byId("menu-available").checked,
+    translations: {
+      ar: {
+        name: byId("menu-name").value,
+        description: byId("menu-description").value,
+        category: byId("menu-category").value,
+        allergens: byId("menu-allergens-ar").value
+      },
+      fr: {
+        name: byId("menu-name-fr").value,
+        description: byId("menu-description-fr").value,
+        category: byId("menu-category-fr").value,
+        allergens: byId("menu-allergens-fr").value
+      },
+      en: {
+        name: byId("menu-name-en").value,
+        description: byId("menu-description-en").value,
+        category: byId("menu-category-en").value,
+        allergens: byId("menu-allergens-en").value
+      }
+    },
+    badges: [
+      byId("menu-badge-popular").checked ? "popular" : null,
+      byId("menu-badge-new").checked ? "new" : null,
+      byId("menu-badge-spicy").checked ? "spicy" : null,
+      byId("menu-badge-vegetarian").checked ? "vegetarian" : null
+    ].filter(Boolean)
   };
   const button = byId("menu-submit");
   button.disabled = true;
@@ -726,21 +908,22 @@ document.querySelectorAll(".admin-tab").forEach((tab) => {
   tab.addEventListener("click", async () => {
     showAdminTab(tab.dataset.adminTab);
     if (tab.dataset.adminTab === "orders") {
-      try {
-        await loadOrders();
-      } catch (error) {
-        showMessage(adminMessage, error.message);
-      }
+      await refreshOrders();
     }
   });
 });
 
-byId("refresh-orders").addEventListener("click", async () => {
-  try {
-    await loadOrders();
-  } catch (error) {
-    showMessage(adminMessage, error.message);
-  }
+byId("refresh-orders").addEventListener("click", refreshOrders);
+byId("orders-staff-filter").addEventListener("change", refreshOrders);
+byId("orders-date-filter").addEventListener("change", refreshOrders);
+byId("clear-orders-filters").addEventListener("click", () => {
+  byId("orders-staff-filter").value = "";
+  byId("orders-date-filter").value = "";
+  refreshOrders();
+});
+byId("ticket-close").addEventListener("click", () => byId("admin-order-ticket").close());
+byId("admin-order-ticket").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
 });
 
 fetch("/api/admin/me", { credentials: "same-origin" })

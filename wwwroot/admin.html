@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261117-7">
+  <link rel="stylesheet" href="/styles.css?v=20261117-9">
 </head>
 <body class="admin-page">
   <div class="page-shell">
@@ -146,9 +146,36 @@
             <form id="menu-form" class="staff-card admin-form">
               <h3 id="menu-form-title">إضافة طبق جديد</h3>
               <input id="menu-id" type="hidden">
-              <label>اسم الطبق<input id="menu-name" maxlength="80" placeholder="مثال: طبق اليوم" required></label>
-              <label>وصف مختصر<input id="menu-description" maxlength="240" placeholder="المكونات أو وصف الطبق"></label>
-              <label>التصنيف<input id="menu-category" maxlength="50" placeholder="المقبلات، المشروبات..." required></label>
+              <label>اسم الطبق بالعربية<input id="menu-name" maxlength="80" placeholder="مثال: طبق اليوم" required></label>
+              <label>وصف الطبق بالعربية<input id="menu-description" maxlength="240" placeholder="المكونات أو وصف الطبق" required></label>
+              <label>تصنيف الطبق
+                <select id="menu-category" required>
+                  <option value="">اختر تصنيفًا</option>
+                  <option value="__add_new__">＋ إضافة تصنيف جديد</option>
+                </select>
+              </label>
+              <label id="menu-category-new-wrap" class="hidden">اسم التصنيف الجديد
+                <input id="menu-category-new" maxlength="50" placeholder="اكتب اسم التصنيف" disabled>
+              </label>
+              <p class="form-note">اختر تصنيفًا موجودًا أو أضف تصنيفًا جديدًا؛ سيظهر في أقسام القائمة بعد حفظ الطبق.</p>
+              <details class="translation-fields">
+                <summary>الترجمات الفرنسية والإنجليزية ومسببات الحساسية</summary>
+                <fieldset class="translation-group">
+                  <legend>الفرنسية</legend>
+                  <label>اسم الطبق<input id="menu-name-fr" maxlength="80" required></label>
+                  <label>الوصف<input id="menu-description-fr" maxlength="240" required></label>
+                  <label>التصنيف<input id="menu-category-fr" maxlength="50" required></label>
+                  <label>مسببات الحساسية<input id="menu-allergens-fr" maxlength="180" placeholder="اكتبها بدقة أو اتركها فارغة"></label>
+                </fieldset>
+                <fieldset class="translation-group">
+                  <legend>الإنجليزية</legend>
+                  <label>اسم الطبق<input id="menu-name-en" maxlength="80" required></label>
+                  <label>الوصف<input id="menu-description-en" maxlength="240" required></label>
+                  <label>التصنيف<input id="menu-category-en" maxlength="50" required></label>
+                  <label>مسببات الحساسية<input id="menu-allergens-en" maxlength="180" placeholder="Enter confirmed allergens, if known"></label>
+                </fieldset>
+              </details>
+              <label>مسببات الحساسية بالعربية<input id="menu-allergens-ar" maxlength="180" placeholder="اكتبها بدقة أو اتركها فارغة"></label>
               <div class="form-row">
                 <label>السعر بالدرهم<input id="menu-price" type="number" min="1" max="1000000" inputmode="numeric" placeholder="350" required></label>
               </div>
@@ -157,7 +184,14 @@
                 <img id="menu-image-preview" class="hidden" alt="معاينة صورة الطبق">
                 <span id="menu-image-placeholder">اختر صورة واضحة للطبق</span>
               </div>
-              <label class="checkbox-label"><input id="menu-available" type="checkbox" checked> متاح للطلب</label>
+              <fieldset class="menu-badge-options">
+                <legend>وسوم الطبق</legend>
+                <label class="checkbox-label"><input id="menu-badge-popular" type="checkbox"> الأكثر طلبًا</label>
+                <label class="checkbox-label"><input id="menu-badge-new" type="checkbox"> جديد</label>
+                <label class="checkbox-label"><input id="menu-badge-spicy" type="checkbox"> حار</label>
+                <label class="checkbox-label"><input id="menu-badge-vegetarian" type="checkbox"> نباتي</label>
+              </fieldset>
+              <label class="checkbox-label"><input id="menu-available" type="checkbox" checked> متاح للطلب (إلغاء التحديد يعرض «نفد اليوم» للزبون)</label>
               <div class="admin-form-actions">
                 <button id="menu-submit" class="primary-button" type="submit">إضافة إلى القائمة</button>
                 <button id="menu-cancel" class="secondary-button hidden" type="button">إلغاء التعديل</button>
@@ -191,15 +225,45 @@
 
         <section id="admin-orders-panel" class="admin-panel hidden">
           <div class="admin-panel-heading">
-            <div><div class="eyebrow">متابعة المطعم</div><h2>أحدث الطلبات</h2></div>
+            <div><div class="eyebrow">متابعة المطعم</div><h2>الطلبات والإحصائيات</h2></div>
             <button id="refresh-orders" class="secondary-button" type="button">تحديث السجل</button>
           </div>
-          <p class="form-note orders-note">يعرض السجل آخر 200 طلب. تفاصيل كل طلب تحفظ كما كانت وقت إنشائه حتى عند تعديل القائمة.</p>
+          <div class="admin-order-stats" id="admin-order-stats" aria-live="polite"></div>
+          <section class="admin-employee-stats" aria-labelledby="admin-employee-stats-title">
+            <h3 id="admin-employee-stats-title">إنجاز الموظفين اليوم</h3>
+            <div id="admin-employee-stats" class="employee-stats-list" aria-live="polite"></div>
+          </section>
+          <p id="unattributed-orders-note" class="form-note orders-note hidden"></p>
+          <div class="admin-orders-toolbar">
+            <h3>الطلبات المنجزة</h3>
+            <div class="orders-filter-bar">
+              <label>الموظف
+                <select id="orders-staff-filter">
+                  <option value="">جميع الموظفين</option>
+                </select>
+              </label>
+              <label>تاريخ الإنجاز
+                <input id="orders-date-filter" type="date">
+              </label>
+              <button id="clear-orders-filters" class="secondary-button" type="button">مسح المرشحات</button>
+            </div>
+          </div>
+          <p class="form-note orders-note">تعرض القائمة جميع الطلبات التي أكدها الموظفون. اضغط على أي طلب لعرض تفاصيل التذكرة.</p>
           <div id="admin-orders-list" class="admin-orders-list" aria-live="polite"></div>
         </section>
         </div>
       </section>
     </main>
+
+    <dialog id="admin-order-ticket" class="admin-order-ticket" aria-labelledby="ticket-title">
+      <div class="ticket-header">
+        <div><div class="eyebrow">تفاصيل الطلب</div><h2 id="ticket-title"></h2></div>
+        <button id="ticket-close" class="secondary-button" type="button" aria-label="إغلاق">إغلاق</button>
+      </div>
+      <div id="ticket-meta" class="ticket-meta"></div>
+      <div id="ticket-items" class="ticket-items"></div>
+      <div class="ticket-total"><span>الإجمالي</span><strong id="ticket-total"></strong></div>
+    </dialog>
 
     <footer class="site-footer">
       <a class="brand footer-brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a>
@@ -209,6 +273,6 @@
   </div>
   <script src="/site-theme.js?v=20261117-2" defer></script>
   <script src="/image-utils.js?v=20261117-1" defer></script>
-  <script src="/admin.js?v=20261117-10" defer></script>
+  <script src="/admin.js?v=20261117-15" defer></script>
 </body>
 </html>

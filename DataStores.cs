@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 public sealed class MenuStore(string connectionString)
 {
+    private static readonly JsonSerializerOptions MenuJsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlyList<MenuItem> DefaultItems =
     [
         new("chicken-shawarma", "شاورما دجاج", "دجاج متبل، ثوم، مخلل وبطاطا", "السندويشات", 320, "🌯", true),
@@ -31,6 +32,8 @@ public sealed class MenuStore(string connectionString)
                 Price INTEGER NOT NULL,
                 Emoji TEXT NOT NULL,
                 ImageData TEXT NULL,
+                TranslationsJson TEXT NULL,
+                BadgesJson TEXT NOT NULL DEFAULT '[]',
                 IsAvailable INTEGER NOT NULL,
                 IsDeleted INTEGER NOT NULL DEFAULT 0
             );
@@ -38,6 +41,8 @@ public sealed class MenuStore(string connectionString)
         await command.ExecuteNonQueryAsync();
 
         var hasImageData = false;
+        var hasTranslationsJson = false;
+        var hasBadgesJson = false;
         var hasIsDeleted = false;
         await using (var columns = connection.CreateCommand())
         {
@@ -48,6 +53,8 @@ public sealed class MenuStore(string connectionString)
                 {
                     var columnName = reader.GetString(1);
                     if (columnName == "ImageData") hasImageData = true;
+                    if (columnName == "TranslationsJson") hasTranslationsJson = true;
+                    if (columnName == "BadgesJson") hasBadgesJson = true;
                     if (columnName == "IsDeleted") hasIsDeleted = true;
                 }
             }
@@ -56,6 +63,18 @@ public sealed class MenuStore(string connectionString)
         {
             await using var migration = connection.CreateCommand();
             migration.CommandText = "ALTER TABLE MenuItems ADD COLUMN ImageData TEXT NULL;";
+            await migration.ExecuteNonQueryAsync();
+        }
+        if (!hasTranslationsJson)
+        {
+            await using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE MenuItems ADD COLUMN TranslationsJson TEXT NULL;";
+            await migration.ExecuteNonQueryAsync();
+        }
+        if (!hasBadgesJson)
+        {
+            await using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE MenuItems ADD COLUMN BadgesJson TEXT NOT NULL DEFAULT '[]';";
             await migration.ExecuteNonQueryAsync();
         }
         if (!hasIsDeleted)
@@ -69,17 +88,52 @@ public sealed class MenuStore(string connectionString)
         {
             await using var insert = connection.CreateCommand();
             insert.CommandText = """
-                INSERT OR IGNORE INTO MenuItems (Id, Name, Description, Category, Price, Emoji, IsAvailable)
-                VALUES ($id, $name, $description, $category, $price, $emoji, $isAvailable);
+                INSERT OR IGNORE INTO MenuItems (
+                    Id, Name, Description, Category, Price, Emoji, ImageData, TranslationsJson, BadgesJson, IsAvailable)
+                VALUES (
+                    $id, $name, $description, $category, $price, $emoji, $imageData,
+                    $translationsJson, $badgesJson, $isAvailable);
                 """;
-            AddMenuParameters(insert, item.Id, item.Name, item.Description, item.Category, item.Price, item.Emoji, null, true);
+            AddMenuParameters(insert, item.Id, item.Name, item.Description, item.Category, item.Price, item.Emoji, null, null, "[]", true);
             await insert.ExecuteNonQueryAsync();
         }
     }
 
     public Task<IReadOnlyList<MenuItem>> GetAvailableAsync() => GetAsync(availableOnly: true);
 
+    public Task<IReadOnlyList<MenuItem>> GetCustomerMenuAsync() => GetAsync(availableOnly: false);
+
     public Task<IReadOnlyList<MenuItem>> GetAllAsync() => GetAsync(availableOnly: false);
+
+    public async Task<IReadOnlyDictionary<string, string>> GetImagesByIdsAsync(IEnumerable<string> itemIds)
+    {
+        var ids = itemIds.Distinct(StringComparer.Ordinal).ToArray();
+        if (ids.Length == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        var parameters = ids.Select((_, index) => $"$id{index}").ToArray();
+        command.CommandText = $"""
+            SELECT Id, ImageData FROM MenuItems
+            WHERE Id IN ({string.Join(", ", parameters)}) AND ImageData IS NOT NULL;
+            """;
+        for (var index = 0; index < ids.Length; index++)
+        {
+            command.Parameters.AddWithValue(parameters[index], ids[index]);
+        }
+
+        await using var reader = await command.ExecuteReaderAsync();
+        var images = new Dictionary<string, string>(StringComparer.Ordinal);
+        while (await reader.ReadAsync())
+        {
+            images.Add(reader.GetString(0), reader.GetString(1));
+        }
+        return images;
+    }
 
     public async Task<MenuItem> CreateAsync(MenuItemRequest request)
     {
@@ -91,15 +145,26 @@ public sealed class MenuStore(string connectionString)
             request.Price,
             "🍽",
             request.IsAvailable,
-            request.ImageData);
+            request.ImageData,
+            request.Translations,
+            request.Badges ?? []);
+        var translationsJson = request.Translations is null
+            ? null
+            : JsonSerializer.Serialize(request.Translations, MenuJsonOptions);
+        var badgesJson = JsonSerializer.Serialize(request.Badges ?? [], MenuJsonOptions);
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO MenuItems (Id, Name, Description, Category, Price, Emoji, ImageData, IsAvailable)
-            VALUES ($id, $name, $description, $category, $price, $emoji, $imageData, $isAvailable);
+            INSERT INTO MenuItems (
+                Id, Name, Description, Category, Price, Emoji, ImageData, TranslationsJson, BadgesJson, IsAvailable)
+            VALUES (
+                $id, $name, $description, $category, $price, $emoji, $imageData,
+                $translationsJson, $badgesJson, $isAvailable);
             """;
-        AddMenuParameters(command, item.Id, item.Name, item.Description, item.Category, item.Price, item.Emoji, item.ImageData, item.IsAvailable);
+        AddMenuParameters(
+            command, item.Id, item.Name, item.Description, item.Category, item.Price, item.Emoji,
+            item.ImageData, translationsJson, badgesJson, item.IsAvailable);
         await command.ExecuteNonQueryAsync();
         return item;
     }
@@ -111,9 +176,14 @@ public sealed class MenuStore(string connectionString)
         await using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE MenuItems SET Name = $name, Description = $description, Category = $category,
-                Price = $price, ImageData = COALESCE($imageData, ImageData), IsAvailable = $isAvailable
+                Price = $price, ImageData = COALESCE($imageData, ImageData),
+                TranslationsJson = $translationsJson, BadgesJson = $badgesJson, IsAvailable = $isAvailable
             WHERE Id = $id AND IsDeleted = 0;
             """;
+        var translationsJson = request.Translations is null
+            ? null
+            : JsonSerializer.Serialize(request.Translations, MenuJsonOptions);
+        var badgesJson = JsonSerializer.Serialize(request.Badges ?? [], MenuJsonOptions);
         AddMenuParameters(
             command,
             id,
@@ -123,6 +193,8 @@ public sealed class MenuStore(string connectionString)
             request.Price,
             "🍽",
             request.ImageData,
+            translationsJson,
+            badgesJson,
             request.IsAvailable);
         if (await command.ExecuteNonQueryAsync() == 0)
         {
@@ -159,7 +231,8 @@ public sealed class MenuStore(string connectionString)
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Name, Description, Category, Price, Emoji, ImageData, IsAvailable
+            SELECT Id, Name, Description, Category, Price, Emoji, ImageData, IsAvailable,
+                TranslationsJson, BadgesJson
             FROM MenuItems
             WHERE IsDeleted = 0 AND ($availableOnly = 0 OR IsAvailable = 1)
             ORDER BY Category, Name;
@@ -174,10 +247,48 @@ public sealed class MenuStore(string connectionString)
         return items;
     }
 
-    private static MenuItem ReadMenuItem(SqliteDataReader reader) =>
-        new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
-            reader.GetInt32(4), reader.GetString(5), reader.GetInt32(7) == 1,
-            reader.IsDBNull(6) ? null : reader.GetString(6));
+    private static MenuItem ReadMenuItem(SqliteDataReader reader)
+    {
+        var name = reader.GetString(1);
+        var description = reader.GetString(2);
+        var category = reader.GetString(3);
+        var translations = reader.IsDBNull(8)
+            ? CreateLegacyTranslations(name, description, category)
+            : JsonSerializer.Deserialize<MenuTranslations>(reader.GetString(8), MenuJsonOptions);
+        var badges = JsonSerializer.Deserialize<string[]>(reader.GetString(9), MenuJsonOptions) ?? [];
+        return new MenuItem(
+            reader.GetString(0), name, description, category, reader.GetInt32(4), reader.GetString(5),
+            reader.GetInt32(7) == 1, reader.IsDBNull(6) ? null : reader.GetString(6), translations, badges);
+    }
+
+    private static MenuTranslations? CreateLegacyTranslations(string name, string description, string category)
+    {
+        var translations = name switch
+        {
+            "Haydari" => new MenuTranslations(
+                new("هايداري", "مقبلات تركية من اللبن مع الباذنجان المشوي على الحطب والمفروم.", "مقبلات", "اسأل فريقنا عن مسببات الحساسية."),
+                new("Haydari", description, "Mezzes", "Demandez à notre équipe pour les allergènes."),
+                new("Haydari", "Turkish yogurt mezze with wood-grilled, chopped eggplant.", "Mezze", "Ask our team about allergens.")),
+            "Cesar Poulet" => new MenuTranslations(
+                new("سلطة سيزر بالدجاج", "سلطة سيزر كلاسيكية مع قطع الدجاج المشوي، والخبز المحمّص، ورقائق البارميزان.", "سلطات", "اسأل فريقنا عن مسببات الحساسية."),
+                new("Salade César au poulet", description, "Salades", "Demandez à notre équipe pour les allergènes."),
+                new("Chicken Caesar Salad", "Classic Caesar salad with tender grilled chicken, croutons, and shaved Parmesan.", "Salads", "Ask our team about allergens.")),
+            "La Gambas Avocat" => new MenuTranslations(
+                new("سلطة الروبيان والأفوكادو", "سلطة طازجة وخفيفة تجمع بين الروبيان والأفوكادو الكريمي.", "سلطات", "اسأل فريقنا عن مسببات الحساسية."),
+                new("Salade gambas avocat", description, "Salades", "Demandez à notre équipe pour les allergènes."),
+                new("Prawn and Avocado Salad", "A fresh, light salad with delicious prawns and creamy avocado.", "Salads", "Ask our team about allergens.")),
+            "Frite Maison" => new MenuTranslations(
+                new("بطاطا مقلية منزلية", "بطاطا مقلية مقرمشة محضّرة في المطعم، مناسبة لمرافقة أطباقك.", "أطباق جانبية", "اسأل فريقنا عن مسببات الحساسية."),
+                new("Frites maison", description, "Accompagnements", "Demandez à notre équipe pour les allergènes."),
+                new("Homemade Fries", "Crispy house-made fries, a classic side for any meal.", "Side Dishes", "Ask our team about allergens.")),
+            "Riz Oriental" => new MenuTranslations(
+                new("أرز شرقي", "أرز شرقي متبّل ولذيذ، إضافة مثالية لإكمال وجبتك.", "أطباق جانبية", "اسأل فريقنا عن مسببات الحساسية."),
+                new("Riz oriental", description, "Accompagnements", "Demandez à notre équipe pour les allergènes."),
+                new("Oriental Rice", "A fragrant, flavorful Oriental rice side to complete your meal.", "Side Dishes", "Ask our team about allergens.")),
+            _ => null
+        };
+        return translations;
+    }
 
     private async Task<MenuItem?> GetByIdAsync(string id)
     {
@@ -185,7 +296,8 @@ public sealed class MenuStore(string connectionString)
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Name, Description, Category, Price, Emoji, ImageData, IsAvailable
+            SELECT Id, Name, Description, Category, Price, Emoji, ImageData, IsAvailable,
+                TranslationsJson, BadgesJson
             FROM MenuItems
             WHERE Id = $id AND IsDeleted = 0;
             """;
@@ -203,6 +315,8 @@ public sealed class MenuStore(string connectionString)
         int price,
         string emoji,
         string? imageData,
+        string? translationsJson,
+        string badgesJson,
         bool isAvailable)
     {
         command.Parameters.AddWithValue("$id", id);
@@ -212,7 +326,86 @@ public sealed class MenuStore(string connectionString)
         command.Parameters.AddWithValue("$price", price);
         command.Parameters.AddWithValue("$emoji", emoji);
         command.Parameters.AddWithValue("$imageData", imageData is null ? DBNull.Value : imageData);
+        command.Parameters.AddWithValue("$translationsJson", translationsJson is null ? DBNull.Value : translationsJson);
+        command.Parameters.AddWithValue("$badgesJson", badgesJson);
         command.Parameters.AddWithValue("$isAvailable", isAvailable ? 1 : 0);
+    }
+}
+
+public sealed class TableRequestStore(string connectionString)
+{
+    public async Task InitializeAsync()
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS TableRequests (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                TableNumber INTEGER NOT NULL,
+                Type TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                IsCompleted INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_TableRequests_Pending
+                ON TableRequests (TableNumber, Type) WHERE IsCompleted = 0;
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<bool> CreateAsync(int tableNumber, string type)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO TableRequests (TableNumber, Type, CreatedAt)
+            VALUES ($tableNumber, $type, $createdAt);
+            """;
+        command.Parameters.AddWithValue("$tableNumber", tableNumber);
+        command.Parameters.AddWithValue("$type", type);
+        command.Parameters.AddWithValue("$createdAt", DateTimeOffset.UtcNow.ToString("O"));
+        try
+        {
+            return await command.ExecuteNonQueryAsync() == 1;
+        }
+        catch (SqliteException exception) when (exception.SqliteExtendedErrorCode == 2067)
+        {
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<TableServiceRequest>> GetPendingAsync()
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, TableNumber, Type, CreatedAt
+            FROM TableRequests WHERE IsCompleted = 0
+            ORDER BY CreatedAt, Id;
+            """;
+        await using var reader = await command.ExecuteReaderAsync();
+        var requests = new List<TableServiceRequest>();
+        while (await reader.ReadAsync())
+        {
+            requests.Add(new TableServiceRequest(
+                reader.GetInt64(0),
+                reader.GetInt32(1),
+                reader.GetString(2),
+                DateTimeOffset.Parse(reader.GetString(3))));
+        }
+        return requests;
+    }
+
+    public async Task<bool> CompleteAsync(long id)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE TableRequests SET IsCompleted = 1 WHERE Id = $id AND IsCompleted = 0;";
+        command.Parameters.AddWithValue("$id", id);
+        return await command.ExecuteNonQueryAsync() == 1;
     }
 }
 
@@ -562,6 +755,7 @@ public enum StaffPinChangeResult
 public sealed class OrderStore(string connectionString)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string OrderCodeAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
     public async Task InitializeAsync()
     {
@@ -578,8 +772,10 @@ public sealed class OrderStore(string connectionString)
             CREATE TABLE IF NOT EXISTS Orders (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 Token TEXT NOT NULL UNIQUE,
+                OrderCode TEXT NULL,
                 CustomerName TEXT NOT NULL,
                 TableNumber INTEGER NOT NULL,
+                Notes TEXT NULL,
                 ItemsJson TEXT NOT NULL,
                 Total INTEGER NOT NULL,
                 Status TEXT NOT NULL,
@@ -588,12 +784,66 @@ public sealed class OrderStore(string connectionString)
             );
             """;
         await command.ExecuteNonQueryAsync();
+
+        var hasConfirmedByStaffId = false;
+        var hasConfirmedByStaffName = false;
+        var hasOrderCode = false;
+        var hasNotes = false;
+        await using (var columns = connection.CreateCommand())
+        {
+            columns.CommandText = "PRAGMA table_info(Orders);";
+            await using var reader = await columns.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var columnName = reader.GetString(1);
+                if (columnName == "ConfirmedByStaffId") hasConfirmedByStaffId = true;
+                if (columnName == "ConfirmedByStaffName") hasConfirmedByStaffName = true;
+                if (columnName == "OrderCode") hasOrderCode = true;
+                if (columnName == "Notes") hasNotes = true;
+            }
+        }
+
+        if (!hasConfirmedByStaffId)
+        {
+            await using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE Orders ADD COLUMN ConfirmedByStaffId INTEGER NULL;";
+            await migration.ExecuteNonQueryAsync();
+        }
+        if (!hasConfirmedByStaffName)
+        {
+            await using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE Orders ADD COLUMN ConfirmedByStaffName TEXT NULL;";
+            await migration.ExecuteNonQueryAsync();
+        }
+        if (!hasOrderCode)
+        {
+            await using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE Orders ADD COLUMN OrderCode TEXT NULL;";
+            await migration.ExecuteNonQueryAsync();
+        }
+        if (!hasNotes)
+        {
+            await using var migration = connection.CreateCommand();
+            migration.CommandText = "ALTER TABLE Orders ADD COLUMN Notes TEXT NULL;";
+            await migration.ExecuteNonQueryAsync();
+        }
+
+        await using var indexes = connection.CreateCommand();
+        indexes.CommandText = """
+            CREATE INDEX IF NOT EXISTS IX_Orders_Status_ConfirmedAt ON Orders (Status, ConfirmedAt);
+            CREATE INDEX IF NOT EXISTS IX_Orders_ConfirmedByStaffId_ConfirmedAt
+                ON Orders (ConfirmedByStaffId, ConfirmedAt);
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_Orders_OrderCode
+                ON Orders (OrderCode) WHERE OrderCode IS NOT NULL;
+            """;
+        await indexes.ExecuteNonQueryAsync();
     }
 
     public async Task<OrderDetails?> CreateAsync(
         string customerName,
         int? tableNumber,
-        IReadOnlyList<OrderItemRequest> requestedItems)
+        IReadOnlyList<OrderItemRequest> requestedItems,
+        string? notes)
     {
         var groupedItems = requestedItems.GroupBy(item => item.Id, StringComparer.Ordinal).ToArray();
         await using var connection = new SqliteConnection(connectionString);
@@ -621,29 +871,54 @@ public sealed class OrderStore(string connectionString)
         {
             var menuItem = availableItems[group.Key];
             var quantity = group.Sum(item => item.Quantity);
-            return new OrderLine(menuItem.Id, menuItem.Name, quantity, menuItem.Price, menuItem.Price * quantity);
+            return new OrderLine(
+                menuItem.Id,
+                menuItem.Name,
+                quantity,
+                menuItem.Price,
+                menuItem.Price * quantity,
+                null,
+                group.Select(item => item.Notes?.Trim()).FirstOrDefault(note => !string.IsNullOrEmpty(note)));
         }).ToArray();
         var total = lines.Sum(line => line.Subtotal);
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
         var createdAt = DateTimeOffset.UtcNow;
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO Orders (Token, CustomerName, TableNumber, ItemsJson, Total, Status, CreatedAt)
-            VALUES ($token, $customerName, $tableNumber, $items, $total, 'pending', $createdAt);
-            SELECT last_insert_rowid();
-            """;
-        command.Parameters.AddWithValue("$token", token);
-        command.Parameters.AddWithValue("$customerName", customerName);
-        command.Parameters.AddWithValue("$tableNumber", tableNumber ?? 0);
-        command.Parameters.AddWithValue("$items", JsonSerializer.Serialize(lines, JsonOptions));
-        command.Parameters.AddWithValue("$total", total);
-        command.Parameters.AddWithValue("$createdAt", createdAt.ToString("O"));
-        var id = (long)(await command.ExecuteScalarAsync() ?? throw new InvalidOperationException("Order insert failed."));
-        return new OrderDetails(id, token, customerName, tableNumber, lines, total, "pending", createdAt, null);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            var code = GenerateOrderCode();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO Orders (
+                    Token, OrderCode, CustomerName, TableNumber, Notes, ItemsJson, Total, Status, CreatedAt)
+                VALUES (
+                    $token, $orderCode, $customerName, $tableNumber, $notes, $items, $total, 'pending', $createdAt);
+                SELECT last_insert_rowid();
+                """;
+            command.Parameters.AddWithValue("$token", token);
+            command.Parameters.AddWithValue("$orderCode", code);
+            command.Parameters.AddWithValue("$customerName", customerName);
+            command.Parameters.AddWithValue("$tableNumber", tableNumber ?? 0);
+            command.Parameters.AddWithValue("$notes", notes is null ? DBNull.Value : notes);
+            command.Parameters.AddWithValue("$items", JsonSerializer.Serialize(lines, JsonOptions));
+            command.Parameters.AddWithValue("$total", total);
+            command.Parameters.AddWithValue("$createdAt", createdAt.ToString("O"));
+
+            try
+            {
+                var id = (long)(await command.ExecuteScalarAsync() ?? throw new InvalidOperationException("Order insert failed."));
+                return new OrderDetails(id, token, code, customerName, tableNumber, lines, total, "pending", createdAt, null, notes);
+            }
+            catch (SqliteException exception) when (exception.SqliteExtendedErrorCode == 2067 && attempt < 4)
+            {
+                continue;
+            }
+        }
+
+        throw new InvalidOperationException("Failed to generate a unique order code.");
     }
 
     public async Task<OrderDetails?> GetByTokenAsync(string token)
@@ -652,7 +927,8 @@ public sealed class OrderStore(string connectionString)
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Token, CustomerName, TableNumber, ItemsJson, Total, Status, CreatedAt, ConfirmedAt
+            SELECT Id, Token, CustomerName, TableNumber, ItemsJson, Total, Status, CreatedAt,
+                ConfirmedAt, OrderCode, Notes
             FROM Orders WHERE Token = $token;
             """;
         command.Parameters.AddWithValue("$token", token);
@@ -660,39 +936,140 @@ public sealed class OrderStore(string connectionString)
         return await reader.ReadAsync() ? ReadOrder(reader) : null;
     }
 
-    public async Task<IReadOnlyList<AdminOrderSummary>> GetRecentAsync(int limit)
+    public async Task<OrderDetails?> GetByCodeAsync(string code)
     {
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, CustomerName, TableNumber, ItemsJson, Total, Status, CreatedAt, ConfirmedAt
-            FROM Orders ORDER BY Id DESC LIMIT $limit;
+            SELECT Id, Token, CustomerName, TableNumber, ItemsJson, Total, Status, CreatedAt,
+                ConfirmedAt, OrderCode, Notes
+            FROM Orders WHERE OrderCode = $code;
             """;
-        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$code", code);
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? ReadOrder(reader) : null;
+    }
+
+    public static bool IsValidOrderCode(string? code) =>
+        code is { Length: 8 } &&
+        code.All(character => OrderCodeAlphabet.Contains(char.ToUpperInvariant(character)));
+
+    public async Task<IReadOnlyList<AdminOrderSummary>> GetConfirmedAsync(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        long? staffId)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, CustomerName, TableNumber, ItemsJson, Total, CreatedAt, ConfirmedAt,
+                ConfirmedByStaffName, Notes
+            FROM Orders
+            WHERE Status = 'confirmed'
+                AND ($from IS NULL OR ConfirmedAt >= $from)
+                AND ($to IS NULL OR ConfirmedAt < $to)
+                AND ($staffId IS NULL OR ConfirmedByStaffId = $staffId)
+            ORDER BY ConfirmedAt DESC, Id DESC;
+            """;
+        command.Parameters.AddWithValue("$from", (object?)from?.ToUniversalTime().ToString("O") ?? DBNull.Value);
+        command.Parameters.AddWithValue("$to", (object?)to?.ToUniversalTime().ToString("O") ?? DBNull.Value);
+        command.Parameters.AddWithValue("$staffId", (object?)staffId ?? DBNull.Value);
         await using var reader = await command.ExecuteReaderAsync();
         var orders = new List<AdminOrderSummary>();
         while (await reader.ReadAsync())
         {
-            var details = ReadOrder(reader, includeToken: false);
-            orders.Add(new AdminOrderSummary(
-                details.Id, details.CustomerName, details.TableNumber, details.Items, details.Total,
-                details.Status, details.CreatedAt, details.ConfirmedAt));
+            orders.Add(ReadConfirmedOrder(reader));
         }
         return orders;
     }
 
-    public async Task<ConfirmResult> ConfirmAsync(string token)
+    public async Task<AdminOrderSummary?> GetConfirmedByIdAsync(long id)
     {
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            UPDATE Orders SET Status = 'confirmed', ConfirmedAt = $confirmedAt
+            SELECT Id, CustomerName, TableNumber, ItemsJson, Total, CreatedAt, ConfirmedAt,
+                ConfirmedByStaffName, Notes
+            FROM Orders
+            WHERE Id = $id AND Status = 'confirmed';
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? ReadConfirmedOrder(reader) : null;
+    }
+
+    public async Task<AdminOrderStats> GetStatsAsync(DateTimeOffset from, DateTimeOffset to)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+
+        await using var totals = connection.CreateCommand();
+        totals.CommandText = """
+            SELECT COUNT(*), COALESCE(SUM(Total), 0),
+                COALESCE(SUM(CASE WHEN ConfirmedByStaffId IS NULL THEN 1 ELSE 0 END), 0)
+            FROM Orders
+            WHERE Status = 'confirmed' AND ConfirmedAt >= $from AND ConfirmedAt < $to;
+            """;
+        totals.Parameters.AddWithValue("$from", from.ToUniversalTime().ToString("O"));
+        totals.Parameters.AddWithValue("$to", to.ToUniversalTime().ToString("O"));
+        await using var totalReader = await totals.ExecuteReaderAsync();
+        if (!await totalReader.ReadAsync())
+        {
+            throw new InvalidOperationException("Failed to load order statistics.");
+        }
+        var completedOrders = totalReader.GetInt32(0);
+        var revenue = totalReader.GetInt32(1);
+        var unattributedOrders = totalReader.GetInt32(2);
+        await totalReader.DisposeAsync();
+
+        await using var employeesCommand = connection.CreateCommand();
+        employeesCommand.CommandText = """
+            SELECT StaffAccounts.Id, StaffAccounts.Name, StaffAccounts.IsActive,
+                COUNT(Orders.Id), COALESCE(SUM(Orders.Total), 0)
+            FROM StaffAccounts
+            LEFT JOIN Orders
+                ON Orders.ConfirmedByStaffId = StaffAccounts.Id
+                AND Orders.Status = 'confirmed'
+                AND Orders.ConfirmedAt >= $from
+                AND Orders.ConfirmedAt < $to
+            GROUP BY StaffAccounts.Id, StaffAccounts.Name, StaffAccounts.IsActive
+            ORDER BY COUNT(Orders.Id) DESC, StaffAccounts.Name COLLATE NOCASE;
+            """;
+        employeesCommand.Parameters.AddWithValue("$from", from.ToUniversalTime().ToString("O"));
+        employeesCommand.Parameters.AddWithValue("$to", to.ToUniversalTime().ToString("O"));
+        await using var employeeReader = await employeesCommand.ExecuteReaderAsync();
+        var employees = new List<StaffOrderStats>();
+        while (await employeeReader.ReadAsync())
+        {
+            employees.Add(new StaffOrderStats(
+                employeeReader.GetInt64(0),
+                employeeReader.GetString(1),
+                employeeReader.GetInt32(2) == 1,
+                employeeReader.GetInt32(3),
+                employeeReader.GetInt32(4)));
+        }
+
+        return new AdminOrderStats(completedOrders, revenue, unattributedOrders, employees);
+    }
+
+    public async Task<ConfirmResult> ConfirmAsync(string token, long staffId, string staffName)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Orders
+            SET Status = 'confirmed', ConfirmedAt = $confirmedAt,
+                ConfirmedByStaffId = $staffId, ConfirmedByStaffName = $staffName
             WHERE Token = $token AND Status = 'pending';
             """;
         command.Parameters.AddWithValue("$token", token);
         command.Parameters.AddWithValue("$confirmedAt", DateTimeOffset.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$staffId", staffId);
+        command.Parameters.AddWithValue("$staffName", staffName);
         if (await command.ExecuteNonQueryAsync() == 1)
         {
             return ConfirmResult.Confirmed;
@@ -702,22 +1079,41 @@ public sealed class OrderStore(string connectionString)
         return existing is null ? ConfirmResult.NotFound : ConfirmResult.AlreadyConfirmed;
     }
 
-    private static OrderDetails ReadOrder(SqliteDataReader reader, bool includeToken = true)
+    private static OrderDetails ReadOrder(SqliteDataReader reader)
     {
-        var token = includeToken ? reader.GetString(1) : "";
-        var customerIndex = includeToken ? 2 : 1;
-        var confirmedAtIndex = includeToken ? 8 : 7;
-        var storedTableNumber = reader.GetInt32(customerIndex + 1);
-        var confirmedAtValue = reader.IsDBNull(confirmedAtIndex) ? null : reader.GetString(confirmedAtIndex);
+        var storedTableNumber = reader.GetInt32(3);
+        var confirmedAtValue = reader.IsDBNull(8) ? null : reader.GetString(8);
         return new OrderDetails(
             reader.GetInt64(0),
-            token,
-            reader.GetString(customerIndex),
+            reader.GetString(1),
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            reader.GetString(2),
             storedTableNumber == 0 ? null : storedTableNumber,
-            JsonSerializer.Deserialize<OrderLine[]>(reader.GetString(customerIndex + 2), JsonOptions) ?? [],
-            reader.GetInt32(customerIndex + 3),
-            reader.GetString(customerIndex + 4),
-            DateTimeOffset.Parse(reader.GetString(customerIndex + 5)),
-            confirmedAtValue is null ? null : DateTimeOffset.Parse(confirmedAtValue));
+            JsonSerializer.Deserialize<OrderLine[]>(reader.GetString(4), JsonOptions) ?? [],
+            reader.GetInt32(5),
+            reader.GetString(6),
+            DateTimeOffset.Parse(reader.GetString(7)),
+            confirmedAtValue is null ? null : DateTimeOffset.Parse(confirmedAtValue),
+            reader.IsDBNull(10) ? null : reader.GetString(10));
+    }
+
+    private static string GenerateOrderCode() =>
+        string.Concat(Enumerable.Range(0, 8)
+            .Select(_ => OrderCodeAlphabet[RandomNumberGenerator.GetInt32(OrderCodeAlphabet.Length)]));
+
+    private static AdminOrderSummary ReadConfirmedOrder(SqliteDataReader reader)
+    {
+        var storedTableNumber = reader.GetInt32(2);
+        var confirmedAtValue = reader.IsDBNull(6) ? null : reader.GetString(6);
+        return new AdminOrderSummary(
+            reader.GetInt64(0),
+            reader.GetString(1),
+            storedTableNumber == 0 ? null : storedTableNumber,
+            JsonSerializer.Deserialize<OrderLine[]>(reader.GetString(3), JsonOptions) ?? [],
+            reader.GetInt32(4),
+            DateTimeOffset.Parse(reader.GetString(5)),
+            confirmedAtValue is null ? null : DateTimeOffset.Parse(confirmedAtValue),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(8) ? null : reader.GetString(8));
     }
 }

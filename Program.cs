@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "data", "orders.db")}";
 var orderStore = new OrderStore(connectionString);
 var menuStore = new MenuStore(connectionString);
+var tableRequestStore = new TableRequestStore(connectionString);
 var staffStore = new StaffAccountStore(connectionString);
 var siteSettingsStore = new SiteSettingsStore(connectionString);
 var adminProfileStore = new AdminProfileStore(connectionString);
@@ -163,11 +164,21 @@ builder.Services.AddRateLimiter(options =>
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
+    options.AddPolicy("table-request", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 6,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 });
 
 var app = builder.Build();
 await orderStore.InitializeAsync();
 await menuStore.InitializeAsync();
+await tableRequestStore.InitializeAsync();
 await staffStore.InitializeAsync();
 await siteSettingsStore.InitializeAsync();
 await adminProfileStore.InitializeAsync("مدير سفرة", adminPassword, adminPasswordIterations);
@@ -230,7 +241,7 @@ app.Use(async (context, next) =>
 });
 app.UseAuthorization();
 
-app.MapGet("/api/menu", async () => Results.Ok(await menuStore.GetAvailableAsync()));
+app.MapGet("/api/menu", async () => Results.Ok(await menuStore.GetCustomerMenuAsync()));
 app.MapGet("/api/site-settings", async () => Results.Ok(await siteSettingsStore.GetAsync()));
 
 app.MapPost("/api/orders", async (CreateOrderRequest request) =>
@@ -239,11 +250,13 @@ app.MapPost("/api/orders", async (CreateOrderRequest request) =>
         string.IsNullOrWhiteSpace(request.CustomerName) ||
         request.CustomerName.Trim().Length > 80 ||
         request.TableNumber is < 1 or > 200 ||
+        (request.Notes?.Length ?? 0) > 500 ||
         request.Items is null ||
         request.Items.Count is < 1 or > 20 ||
         request.Items.Any(item =>
             item is null ||
             item.Quantity is < 1 or > 10 ||
+            (item.Notes?.Length ?? 0) > 200 ||
             string.IsNullOrEmpty(item.Id)) ||
         request.Items.GroupBy(item => item.Id, StringComparer.Ordinal).Any(group => group.Sum(item => item.Quantity) > 10))
     {
@@ -253,7 +266,8 @@ app.MapPost("/api/orders", async (CreateOrderRequest request) =>
     var order = await orderStore.CreateAsync(
         request.CustomerName.Trim(),
         request.TableNumber,
-        request.Items);
+        request.Items,
+        string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim());
     if (order is null)
     {
         return Results.BadRequest(new { message = "أحد الأطباق لم يعد متاحًا. حدّث القائمة ثم حاول مجددًا." });
@@ -268,6 +282,7 @@ app.MapPost("/api/orders", async (CreateOrderRequest request) =>
     {
         order.Id,
         order.Token,
+        order.Code,
         order.CustomerName,
         order.TableNumber,
         order.Items,
@@ -278,6 +293,20 @@ app.MapPost("/api/orders", async (CreateOrderRequest request) =>
         OrderUrl = qrPayload
     });
 }).RequireRateLimiting("new-order");
+
+app.MapPost("/api/table-requests", async (TableRequestInput? request) =>
+{
+    if (request is null ||
+        request.TableNumber is < 1 or > 200 ||
+        request.Type is not ("waiter" or "bill"))
+    {
+        return Results.BadRequest(new { message = "تحقق من رقم الطاولة ونوع الطلب." });
+    }
+
+    return await tableRequestStore.CreateAsync(request.TableNumber, request.Type)
+        ? Results.Accepted()
+        : Results.Conflict(new { message = "يوجد طلب مفتوح مماثل لهذه الطاولة بالفعل." });
+}).RequireRateLimiting("table-request");
 
 app.MapGet("/api/orders/{token}", async (string token) =>
 {
@@ -415,6 +444,16 @@ app.MapPut("/api/staff/pin", async (StaffPinChangeRequest? request, ClaimsPrinci
 app.MapGet("/api/staff/menu-qr", (HttpContext context) => CreateMenuQr(context, publicBaseUrl))
     .RequireAuthorization("StaffOnly");
 
+app.MapGet("/api/staff/table-requests", async () =>
+    Results.Ok(await tableRequestStore.GetPendingAsync()))
+    .RequireAuthorization("StaffOnly");
+
+app.MapPost("/api/staff/table-requests/{id:long}/complete", async (long id) =>
+    await tableRequestStore.CompleteAsync(id)
+        ? Results.NoContent()
+        : Results.NotFound(new { message = "لم يعد هذا الطلب مفتوحًا." }))
+    .RequireAuthorization("StaffOnly");
+
 app.MapPost("/api/staff/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -426,12 +465,38 @@ app.MapGet("/api/staff/orders/{token}", async (string token) =>
     var order = await orderStore.GetByTokenAsync(token);
     return order is null
         ? Results.NotFound(new { message = "لم يتم العثور على هذا الطلب. تحقق من الرمز." })
-        : Results.Ok(order);
+        : Results.Ok(order with { Items = await IncludeOrderImagesAsync(order.Items, menuStore) });
 }).RequireAuthorization("StaffOnly");
 
-app.MapPost("/api/staff/orders/{token}/confirm", async (string token) =>
+app.MapGet("/api/staff/orders/by-code/{code}", async (string code) =>
 {
-    var result = await orderStore.ConfirmAsync(token);
+    var normalizedCode = code.ToUpperInvariant();
+    if (!OrderStore.IsValidOrderCode(normalizedCode))
+    {
+        return Results.BadRequest(new { message = "رمز الطلب غير صالح." });
+    }
+
+    var order = await orderStore.GetByCodeAsync(normalizedCode);
+    return order is null
+        ? Results.NotFound(new { message = "لم يتم العثور على طلب بهذا الرمز." })
+        : Results.Ok(order with { Items = await IncludeOrderImagesAsync(order.Items, menuStore) });
+}).RequireAuthorization("StaffOnly");
+
+app.MapPost("/api/staff/orders/{token}/confirm", async (string token, ClaimsPrincipal user) =>
+{
+    var staffId = GetStaffId(user);
+    if (staffId is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var staffProfile = await staffStore.GetProfileAsync(staffId.Value);
+    if (staffProfile is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var result = await orderStore.ConfirmAsync(token, staffId.Value, staffProfile.Name);
     return result switch
     {
         ConfirmResult.Confirmed => Results.Ok(new { status = "confirmed" }),
@@ -661,12 +726,51 @@ app.MapDelete("/api/admin/staff/{id:long}", async (long id) =>
         : Results.NotFound(new { message = "الموظف غير موجود." }))
     .RequireAuthorization("AdminOnly");
 
-app.MapGet("/api/admin/orders", async () =>
-    Results.Ok(await orderStore.GetRecentAsync(200)))
-    .RequireAuthorization("AdminOnly");
+app.MapGet("/api/admin/orders", async (DateTimeOffset? from, DateTimeOffset? to, long? staffId) =>
+{
+    if ((from is null) != (to is null) ||
+        (from is not null && to <= from) ||
+        staffId is <= 0)
+    {
+        return Results.BadRequest(new { message = "مرشحات الطلبات غير صالحة." });
+    }
+
+    return Results.Ok(await orderStore.GetConfirmedAsync(from, to, staffId));
+}).RequireAuthorization("AdminOnly");
+
+app.MapGet("/api/admin/orders/{id:long}", async (long id) =>
+{
+    if (id <= 0)
+    {
+        return Results.BadRequest(new { message = "رقم الطلب غير صالح." });
+    }
+
+    var order = await orderStore.GetConfirmedByIdAsync(id);
+    return order is null
+        ? Results.NotFound(new { message = "لم يتم العثور على الطلب." })
+        : Results.Ok(order with { Items = await IncludeOrderImagesAsync(order.Items, menuStore) });
+}).RequireAuthorization("AdminOnly");
+
+app.MapGet("/api/admin/order-stats", async (DateTimeOffset? from, DateTimeOffset? to) =>
+{
+    if (from is null || to is null || to <= from || to.Value - from.Value > TimeSpan.FromDays(2))
+    {
+        return Results.BadRequest(new { message = "الفترة المطلوبة للإحصائيات غير صالحة." });
+    }
+
+    return Results.Ok(await orderStore.GetStatsAsync(from.Value, to.Value));
+}).RequireAuthorization("AdminOnly");
 
 app.MapFallbackToFile("index.html");
 app.Run();
+
+static async Task<IReadOnlyList<OrderLine>> IncludeOrderImagesAsync(
+    IReadOnlyList<OrderLine> items,
+    MenuStore menuStore)
+{
+    var images = await menuStore.GetImagesByIdsAsync(items.Select(item => item.Id));
+    return items.Select(item => item with { ImageData = images.GetValueOrDefault(item.Id) }).ToArray();
+}
 
 static bool IsValidPin(string? candidate, string expected)
 {
@@ -747,7 +851,30 @@ static bool IsValidMenuItem(MenuItemRequest? request) =>
     (request.Description?.Length ?? 0) <= 240 &&
     !string.IsNullOrWhiteSpace(request.Category) &&
     request.Category.Trim().Length <= 50 &&
-    request.Price is > 0 and <= 1_000_000;
+    request.Price is > 0 and <= 1_000_000 &&
+    IsValidMenuTranslations(request.Translations) &&
+    IsValidMenuBadges(request.Badges);
+
+static bool IsValidMenuTranslations(MenuTranslations? translations)
+{
+    if (translations is null) return true;
+    return IsValidMenuLocale(translations.Ar) &&
+        IsValidMenuLocale(translations.Fr) &&
+        IsValidMenuLocale(translations.En);
+}
+
+static bool IsValidMenuLocale(MenuLocale? locale) =>
+    locale is null ||
+    ((locale.Name?.Length ?? 0) <= 80 &&
+     (locale.Description?.Length ?? 0) <= 240 &&
+     (locale.Category?.Length ?? 0) <= 50 &&
+     (locale.Allergens?.Length ?? 0) <= 180);
+
+static bool IsValidMenuBadges(string[]? badges) =>
+    badges is null ||
+    (badges.Length <= 4 &&
+     badges.Distinct(StringComparer.Ordinal).Count() == badges.Length &&
+     badges.All(badge => badge is "popular" or "new" or "spicy" or "vegetarian"));
 
 static bool IsValidMenuImage(string? imageData)
 {
@@ -794,8 +921,10 @@ static bool IsValidMenuImage(string? imageData)
     };
 }
 
-public sealed record CreateOrderRequest(string CustomerName, int? TableNumber, List<OrderItemRequest> Items);
-public sealed record OrderItemRequest(string Id, int Quantity);
+public sealed record CreateOrderRequest(string CustomerName, int? TableNumber, List<OrderItemRequest> Items, string? Notes = null);
+public sealed record OrderItemRequest(string Id, int Quantity, string? Notes = null);
+public sealed record TableRequestInput(int TableNumber, string Type);
+public sealed record TableServiceRequest(long Id, int TableNumber, string Type, DateTimeOffset CreatedAt);
 public sealed record StaffLoginRequest(string? Pin);
 public sealed record StaffProfileUpdateRequest(string? Name, string? AvatarData, bool RemoveAvatar = false);
 public sealed record StaffPinChangeRequest(string? CurrentPin, string? NewPin);
@@ -803,32 +932,68 @@ public sealed record AdminLoginRequest(string? Username, string? Password);
 public sealed record SiteSettingsRequest(string? Theme, string? SiteName, string? LogoData, bool RemoveLogo = false);
 public sealed record AdminProfileUpdateRequest(string? DisplayName, string? AvatarData, bool RemoveAvatar = false);
 public sealed record AdminPasswordChangeRequest(string? CurrentPassword, string? NewPassword);
-public sealed record MenuItemRequest(string? Name, string? Description, string? Category, int Price, string? ImageData, bool IsAvailable = true);
+public sealed record MenuItemRequest(
+    string? Name,
+    string? Description,
+    string? Category,
+    int Price,
+    string? ImageData,
+    bool IsAvailable = true,
+    MenuTranslations? Translations = null,
+    string[]? Badges = null);
 public sealed record CreateStaffRequest(string? Name, string? Pin);
 public sealed record UpdateStaffRequest(string? Name, bool IsActive, string? NewPin);
-public sealed record MenuItem(string Id, string Name, string Description, string Category, int Price, string Emoji, bool IsAvailable, string? ImageData = null);
+public sealed record MenuLocale(string? Name, string? Description, string? Category, string? Allergens);
+public sealed record MenuTranslations(MenuLocale? Ar, MenuLocale? Fr, MenuLocale? En);
+public sealed record MenuItem(
+    string Id,
+    string Name,
+    string Description,
+    string Category,
+    int Price,
+    string Emoji,
+    bool IsAvailable,
+    string? ImageData = null,
+    MenuTranslations? Translations = null,
+    string[]? Badges = null);
 public sealed record StaffSummary(long Id, string Name, bool IsActive, DateTimeOffset CreatedAt);
 public sealed record StaffIdentity(long Id, string Name, int AuthVersion);
-public sealed record OrderLine(string Id, string Name, int Quantity, int UnitPrice, int Subtotal);
+public sealed record OrderLine(
+    string Id,
+    string Name,
+    int Quantity,
+    int UnitPrice,
+    int Subtotal,
+    string? ImageData = null,
+    string? Notes = null);
+public sealed record StaffOrderStats(long StaffId, string Name, bool IsActive, int CompletedOrders, int Revenue);
+public sealed record AdminOrderStats(
+    int CompletedOrders,
+    int Revenue,
+    int UnattributedOrders,
+    IReadOnlyList<StaffOrderStats> Employees);
 public sealed record OrderDetails(
     long Id,
     string Token,
+    string? Code,
     string CustomerName,
     int? TableNumber,
     IReadOnlyList<OrderLine> Items,
     int Total,
     string Status,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? ConfirmedAt);
+    DateTimeOffset? ConfirmedAt,
+    string? Notes = null);
 public sealed record AdminOrderSummary(
     long Id,
     string CustomerName,
     int? TableNumber,
     IReadOnlyList<OrderLine> Items,
     int Total,
-    string Status,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? ConfirmedAt);
+    DateTimeOffset? ConfirmedAt,
+    string? StaffName,
+    string? Notes = null);
 
 public enum ConfirmResult
 {

@@ -30,7 +30,13 @@
     });
 
     const pageTitle = document.querySelector("title")?.dataset.siteTitle;
-    if (pageTitle === "home") document.title = `${name} | اطلب من طاولتك`;
+    if (pageTitle === "home") {
+      const menuTitles = { ar: "قائمتنا", fr: "Notre carte", en: "Our menu" };
+      const language = document.documentElement.lang;
+      document.title = document.body.classList.contains("menu-page")
+        ? `${name} | ${menuTitles[language] || menuTitles.ar}`
+        : `${name} | اطلب من طاولتك`;
+    }
     if (pageTitle === "staff") document.title = `بوابة الموظفين | ${name}`;
     if (pageTitle === "admin") document.title = `الإدارة | ${name}`;
   };

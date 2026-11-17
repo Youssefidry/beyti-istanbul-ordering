@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261117-7">
+  <link rel="stylesheet" href="/styles.css?v=20261117-9">
 </head>
 <body class="staff-page">
   <div class="page-shell">
@@ -16,7 +16,6 @@
       <a class="brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a>
       <nav class="header-links" aria-label="التنقل">
         <a class="header-link" href="/">قائمة الطعام <span aria-hidden="true">↗</span></a>
-        <a class="header-link" href="/admin.html">الإدارة</a>
       </nav>
     </header>
 
@@ -96,17 +95,27 @@
           <img id="menu-qr-image" alt="رمز QR لقائمة المطعم">
         </section>
 
+        <section class="staff-card table-requests-panel" aria-labelledby="table-requests-title">
+          <div class="admin-panel-heading">
+            <div><div class="eyebrow">طلبات الخدمة</div><h2 id="table-requests-title">تنبيهات الطاولات</h2></div>
+          </div>
+          <p id="table-requests-message" class="form-message hidden" role="alert"></p>
+          <div id="table-requests-list" class="table-requests-list" aria-live="polite">
+            <p class="form-note">لا توجد طلبات مفتوحة من الطاولات.</p>
+          </div>
+        </section>
+
         <div class="scanner-layout">
           <section class="staff-card scanner-card">
             <div class="eyebrow">التحقق من الطلب</div>
             <h2>امسح رمز الزبون</h2>
-            <p>وجّه الكاميرا نحو رمز QR على شاشة الزبون.</p>
+            <p>امسح QR أو أدخل الرمز الظاهر أسفله في شاشة الزبون.</p>
             <div id="qr-reader" class="qr-reader"></div>
             <button id="scan-button" class="primary-button" type="button">تشغيل الكاميرا <span aria-hidden="true">⌖</span></button>
             <div class="manual-entry">
               <span class="manual-divider"><span>أو أدخل رمز الطلب يدويًا</span></span>
               <form id="lookup-form">
-                <input id="order-token" autocomplete="off" placeholder="الصق رابط الطلب أو رمزه" aria-label="رابط الطلب أو رمزه">
+                <input id="order-token" autocomplete="off" placeholder="أدخل الرمز أسفل QR أو الصق رابط الطلب" aria-label="رمز الطلب أو رابط QR">
                 <button class="secondary-button" type="submit">بحث</button>
               </form>
             </div>
@@ -128,6 +137,6 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="/site-theme.js?v=20261117-2" defer></script>
   <script src="/image-utils.js?v=20261117-1" defer></script>
-  <script src="/staff.js?v=20261117-4" defer></script>
+  <script src="/staff.js?v=20261117-8" defer></script>
 </body>
 </html>
