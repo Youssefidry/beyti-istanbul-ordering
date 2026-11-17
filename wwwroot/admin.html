@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="sufra">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183c32">
+  <title data-site-title="admin">الإدارة | سفرة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20261117-7">
+</head>
+<body class="admin-page">
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a>
+      <a class="header-link" href="/staff.html">بوابة الموظفين <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main class="admin-main">
+      <div id="admin-intro" class="admin-intro">
+        <div class="eyebrow"><span class="status-dot"></span> لوحة التحكم</div>
+        <h1>إدارة <span data-site-name>سفرة</span></h1>
+        <p>عدّل قائمة المطعم، أدِر حسابات الموظفين، وتابع سجل الطلبات من مكان واحد.</p>
+      </div>
+
+      <section id="admin-login" class="staff-card login-card admin-login-card">
+        <div class="card-icon">✳</div>
+        <div class="eyebrow">دخول المدير</div>
+        <h2>مرحبًا بك</h2>
+        <p>أدخل اسم المستخدم وكلمة المرور للمتابعة.</p>
+        <form id="admin-login-form">
+          <label>اسم المستخدم<input id="admin-username" name="username" type="text" autocomplete="username" maxlength="80" required></label>
+          <label>كلمة المرور<input id="admin-password" name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+          <button class="primary-button" type="submit">دخول لوحة التحكم <span aria-hidden="true">←</span></button>
+          <p id="admin-login-message" class="form-message hidden" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="admin-workspace" class="admin-workspace hidden">
+        <div class="workspace-toolbar">
+          <div class="staff-welcome"><span id="admin-avatar" class="staff-avatar">م</span><div><strong id="admin-display-name">مدير سفرة</strong><span>بيانات المطعم محفوظة على الخادم</span></div></div>
+          <div class="workspace-actions">
+            <button id="admin-settings-toggle" class="secondary-button" type="button" aria-controls="admin-settings-panel" aria-expanded="false">إعدادات الموقع</button>
+            <button id="admin-logout" class="secondary-button" type="button">تسجيل الخروج</button>
+          </div>
+        </div>
+
+        <p id="admin-message" class="form-message admin-message hidden" role="alert"></p>
+        <p id="admin-success" class="success-message hidden" role="status"></p>
+
+        <section id="admin-settings-panel" class="admin-settings-panel hidden" aria-labelledby="admin-settings-title">
+          <div class="admin-panel-heading">
+            <div><div class="eyebrow">تخصيص الموقع</div><h2 id="admin-settings-title">إعدادات الموقع</h2></div>
+          </div>
+          <div class="settings-grid">
+            <form id="site-settings-form" class="staff-card admin-form settings-form">
+              <h3>هوية الموقع</h3>
+              <label>اسم الموقع<input id="site-name" maxlength="80" required></label>
+              <label>شعار الموقع<input id="site-logo" type="file" accept="image/jpeg,image/png,image/webp"></label>
+              <div class="image-preview settings-image-preview">
+                <img id="site-logo-preview" class="hidden" alt="معاينة شعار الموقع">
+                <span id="site-logo-placeholder">سيظهر الحرف الأول من الاسم افتراضيًا</span>
+              </div>
+              <label class="checkbox-label"><input id="site-logo-remove" type="checkbox"> إزالة الشعار المحفوظ</label>
+              <fieldset class="theme-options">
+                <legend>ثيم الموقع</legend>
+                <label class="theme-option">
+                  <input type="radio" name="site-theme" value="sufra" required>
+                  <span class="theme-option-content">
+                    <span class="theme-swatches" aria-hidden="true"><span class="theme-swatch swatch-sufra-main"></span><span class="theme-swatch swatch-sufra-accent"></span><span class="theme-swatch swatch-sufra-bg"></span></span>
+                    <strong>سفرة</strong><small>أخضر هادئ ونحاسي</small>
+                  </span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="site-theme" value="sunset">
+                  <span class="theme-option-content">
+                    <span class="theme-swatches" aria-hidden="true"><span class="theme-swatch swatch-sunset-main"></span><span class="theme-swatch swatch-sunset-accent"></span><span class="theme-swatch swatch-sunset-bg"></span></span>
+                    <strong>غروب</strong><small>طوبي دافئ ومشمشي</small>
+                  </span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="site-theme" value="ocean">
+                  <span class="theme-option-content">
+                    <span class="theme-swatches" aria-hidden="true"><span class="theme-swatch swatch-ocean-main"></span><span class="theme-swatch swatch-ocean-accent"></span><span class="theme-swatch swatch-ocean-bg"></span></span>
+                    <strong>محيط</strong><small>أزرق بحري وذهبي</small>
+                  </span>
+                </label>
+              </fieldset>
+              <div class="admin-form-actions">
+                <button id="site-settings-save" class="primary-button" type="submit">حفظ إعدادات الموقع</button>
+                <button id="site-settings-cancel" class="secondary-button" type="button">العودة للوحة الإدارة</button>
+              </div>
+            </form>
+
+            <form id="admin-profile-form" class="staff-card admin-form settings-form">
+              <h3>الملف الشخصي للمدير</h3>
+              <label>الاسم الظاهر<input id="admin-profile-name" maxlength="80" required></label>
+              <label>الصورة الشخصية<input id="admin-profile-image" type="file" accept="image/jpeg,image/png,image/webp"></label>
+              <div class="image-preview settings-image-preview profile-image-preview">
+                <img id="admin-profile-preview" class="hidden" alt="معاينة صورة المدير">
+                <span id="admin-profile-placeholder">اختر صورة شخصية</span>
+              </div>
+              <label class="checkbox-label"><input id="admin-profile-image-remove" type="checkbox"> إزالة الصورة المحفوظة</label>
+              <div class="admin-form-actions">
+                <button id="admin-profile-save" class="primary-button" type="submit">حفظ الملف الشخصي</button>
+              </div>
+            </form>
+
+            <form id="admin-password-form" class="staff-card admin-form settings-form">
+              <h3>تغيير كلمة المرور</h3>
+              <label>كلمة المرور الحالية<input id="admin-current-password" type="password" autocomplete="current-password" maxlength="128" required></label>
+              <label>كلمة المرور الجديدة<input id="admin-new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+              <p class="form-note">يجب أن تكون كلمة المرور الجديدة من 12 حرفًا على الأقل. سيتم تسجيل الخروج بعد تغييرها.</p>
+              <div class="admin-form-actions">
+                <button id="admin-password-save" class="primary-button" type="submit">تغيير كلمة المرور</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <div id="admin-dashboard">
+        <nav class="admin-tabs" aria-label="أقسام الإدارة">
+          <button class="admin-tab active" type="button" data-admin-tab="menu">الأطباق والقائمة</button>
+          <button class="admin-tab" type="button" data-admin-tab="staff">الموظفون</button>
+          <button class="admin-tab" type="button" data-admin-tab="orders">سجل الطلبات</button>
+        </nav>
+
+        <section id="admin-menu-panel" class="admin-panel">
+          <div class="admin-panel-heading">
+            <div><div class="eyebrow">قائمة المطعم</div><h2>الأطباق والأسعار</h2></div>
+            <div class="admin-menu-tools">
+              <button id="admin-menu-qr-button" class="secondary-button" type="button">QR القائمة</button>
+              <span id="menu-item-count" class="count-badge"></span>
+            </div>
+          </div>
+          <div id="admin-menu-qr-card" class="admin-menu-qr-card hidden">
+            <div>
+              <strong>رمز قائمة المطعم</strong>
+              <p>نزّله واطبعه على الطاولات ليتمكن الزبائن من فتح القائمة.</p>
+              <a id="admin-menu-qr-download" class="secondary-button" download="sufra-menu-qr.png">تنزيل QR القائمة</a>
+            </div>
+            <img id="admin-menu-qr-image" alt="رمز QR لقائمة المطعم">
+          </div>
+          <div class="admin-content-grid">
+            <form id="menu-form" class="staff-card admin-form">
+              <h3 id="menu-form-title">إضافة طبق جديد</h3>
+              <input id="menu-id" type="hidden">
+              <label>اسم الطبق<input id="menu-name" maxlength="80" placeholder="مثال: طبق اليوم" required></label>
+              <label>وصف مختصر<input id="menu-description" maxlength="240" placeholder="المكونات أو وصف الطبق"></label>
+              <label>التصنيف<input id="menu-category" maxlength="50" placeholder="المقبلات، المشروبات..." required></label>
+              <div class="form-row">
+                <label>السعر بالدرهم<input id="menu-price" type="number" min="1" max="1000000" inputmode="numeric" placeholder="350" required></label>
+              </div>
+              <label>صورة الطبق<input id="menu-image" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+              <div id="menu-image-preview-container" class="menu-image-preview-container">
+                <img id="menu-image-preview" class="hidden" alt="معاينة صورة الطبق">
+                <span id="menu-image-placeholder">اختر صورة واضحة للطبق</span>
+              </div>
+              <label class="checkbox-label"><input id="menu-available" type="checkbox" checked> متاح للطلب</label>
+              <div class="admin-form-actions">
+                <button id="menu-submit" class="primary-button" type="submit">إضافة إلى القائمة</button>
+                <button id="menu-cancel" class="secondary-button hidden" type="button">إلغاء التعديل</button>
+              </div>
+            </form>
+            <div id="admin-menu-list" class="admin-record-list" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section id="admin-staff-panel" class="admin-panel hidden">
+          <div class="admin-panel-heading">
+            <div><div class="eyebrow">إدارة الفريق</div><h2>حسابات الموظفين</h2></div>
+            <span id="staff-count" class="count-badge"></span>
+          </div>
+          <div class="admin-content-grid">
+            <form id="staff-form" class="staff-card admin-form">
+              <h3 id="staff-form-title">إضافة موظف</h3>
+              <input id="staff-id" type="hidden">
+              <label>اسم الموظف<input id="staff-name" maxlength="80" placeholder="الاسم" required></label>
+              <label id="staff-pin-label">رمز دخول الموظف<input id="staff-pin-input" type="password" inputmode="numeric" autocomplete="new-password" minlength="6" maxlength="12" placeholder="6 إلى 12 رقمًا"></label>
+              <p id="staff-pin-help" class="form-note">اختر رمزًا فريدًا من 6 إلى 12 رقمًا، ثم أبلغه للموظف بأمان.</p>
+              <label id="staff-active-label" class="checkbox-label hidden"><input id="staff-active" type="checkbox" checked> حساب نشط</label>
+              <div class="admin-form-actions">
+                <button id="staff-submit" class="primary-button" type="submit">إضافة الموظف</button>
+                <button id="staff-cancel" class="secondary-button hidden" type="button">إلغاء</button>
+              </div>
+            </form>
+            <div id="admin-staff-list" class="admin-record-list" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section id="admin-orders-panel" class="admin-panel hidden">
+          <div class="admin-panel-heading">
+            <div><div class="eyebrow">متابعة المطعم</div><h2>أحدث الطلبات</h2></div>
+            <button id="refresh-orders" class="secondary-button" type="button">تحديث السجل</button>
+          </div>
+          <p class="form-note orders-note">يعرض السجل آخر 200 طلب. تفاصيل كل طلب تحفظ كما كانت وقت إنشائه حتى عند تعديل القائمة.</p>
+          <div id="admin-orders-list" class="admin-orders-list" aria-live="polite"></div>
+        </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand footer-brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a>
+      <span>الإدارة محمية بحساب مستقل.</span>
+      <a href="/">قائمة الطعام</a>
+    </footer>
+  </div>
+  <script src="/site-theme.js?v=20261117-2" defer></script>
+  <script src="/image-utils.js?v=20261117-1" defer></script>
+  <script src="/admin.js?v=20261117-10" defer></script>
+</body>
+</html>

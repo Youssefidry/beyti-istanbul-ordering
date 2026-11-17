@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="sufra">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183c32">
+  <title data-site-title="home">سفرة | اطلب من طاولتك</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20261117-7">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand>
+        <span class="brand-mark" data-site-logo-mark>س</span>
+        <span><span data-site-name>سفرة</span><span class="brand-period">.</span></span>
+      </a>
+    </header>
+
+    <main id="menu-view">
+      <section id="menu" class="menu-section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow section-eyebrow">اختيارات تفتح النفس</div>
+            <h2>قائمتنا <span>اليوم</span></h2>
+          </div>
+          <p>مكوّنات طازجة، ونكهة تستاهل تنتظرها.</p>
+        </div>
+        <div id="category-filters" class="category-filters" aria-label="تصنيفات الطعام"></div>
+        <div id="menu-grid" class="menu-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="process-strip">
+        <div class="process-title"><span class="eyebrow">بكل سهولة</span><h2>طلبك بثلاث خطوات</h2></div>
+        <div class="process-step"><span class="step-number">01</span><div><h3>اختَر أطباقك</h3><p>تصفّح القائمة وأضف ما تشتهيه.</p></div></div>
+        <div class="process-step"><span class="step-number">02</span><div><h3>احصل على رمزك</h3><p>ننشئ QR خاصًا بطلبك.</p></div></div>
+        <div class="process-step"><span class="step-number">03</span><div><h3>أكد طلبك</h3><p>الموظف يمسح الرمز ويؤكد الطلب.</p></div></div>
+      </section>
+
+      <footer class="site-footer">
+        <a class="brand footer-brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a>
+        <span>طازج على طاولتك.</span>
+      </footer>
+    </main>
+
+    <main id="tracking-view" class="tracking-view hidden">
+      <a class="back-link" href="/">← العودة إلى قائمة الطعام</a>
+      <section id="tracking-card" class="tracking-card">
+        <div class="loading-mark"></div>
+        <p>جارٍ تحميل الطلب...</p>
+      </section>
+    </main>
+  </div>
+
+  <button id="cart-toggle" class="cart-toggle hidden" type="button" aria-label="عرض سلة الطلب">
+    <span>سلّتي</span><span id="cart-count" class="cart-count">0</span><span id="cart-total" class="money" dir="ltr"><span>0</span><span>درهم</span></span>
+  </button>
+  <div id="cart-backdrop" class="cart-backdrop hidden"></div>
+  <aside id="cart-panel" class="cart-panel" aria-label="سلة الطلب" aria-hidden="true">
+    <div class="cart-header">
+      <div><span class="eyebrow">طلبك القادم</span><h2>سلّتي <span id="cart-heading-count">(٠)</span></h2></div>
+      <button id="cart-close" class="icon-button" type="button" aria-label="إغلاق السلة">×</button>
+    </div>
+    <div id="cart-items" class="cart-items"><div class="empty-cart"><span>✳</span><p>السلة بانتظار طبقك الأول.</p></div></div>
+    <form id="checkout-form" class="checkout-form">
+      <label>اسمك<input id="customer-name" name="customerName" maxlength="80" placeholder="الاسم الذي يناديك به الموظف" required></label>
+      <div class="cart-summary"><span>المجموع</span><strong id="checkout-total" class="money" dir="ltr"><span>0</span><span>درهم</span></strong></div>
+      <button id="place-order" class="primary-button" type="submit" disabled>تأكيد وإصدار رمز QR <span aria-hidden="true">←</span></button>
+      <p class="form-note">سيُنشأ رمز خاص بطلبك، ولا يُعتمد الطلب حتى يؤكده الموظف.</p>
+      <p id="checkout-message" class="form-message hidden" role="alert"></p>
+    </form>
+  </aside>
+
+  <div id="order-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="order-modal">
+      <button id="modal-close" class="icon-button modal-close" type="button" aria-label="إغلاق">×</button>
+      <div class="success-mark">✓</div>
+      <div class="eyebrow">تم إنشاء الطلب</div>
+      <h2 id="modal-title">هذا رمز طلبك الخاص</h2>
+      <p class="modal-copy">أرِ هذا الرمز لموظف الطلبات. سيظهر له طلبك ويتأكد منه قبل اعتماده.</p>
+      <img id="order-qr" class="order-qr" alt="رمز QR الخاص بطلبك">
+      <div class="order-code-label">رقم الطلب</div>
+      <div id="order-code" class="order-code"></div>
+      <div id="order-summary" class="modal-summary"></div>
+      <a id="open-order" class="text-link" href="#">افتح صفحة متابعة الطلب <span aria-hidden="true">↗</span></a>
+    </div>
+  </div>
+
+  <script src="/site-theme.js?v=20261117-2" defer></script>
+  <script src="/app.js?v=20261117-5" defer></script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="sufra">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183c32">
+  <title data-site-title="staff">بوابة الموظفين | سفرة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20261117-7">
+</head>
+<body class="staff-page">
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a>
+      <nav class="header-links" aria-label="التنقل">
+        <a class="header-link" href="/">قائمة الطعام <span aria-hidden="true">↗</span></a>
+        <a class="header-link" href="/admin.html">الإدارة</a>
+      </nav>
+    </header>
+
+    <main class="staff-main">
+      <div id="staff-intro" class="staff-intro">
+        <div class="eyebrow"><span class="status-dot"></span> مساحة العمل</div>
+        <h1>بوابة <span>الموظفين</span></h1>
+        <p>امسح رمز QR الخاص بالزبون للتحقق من الطلب ومراجعة تفاصيله قبل اعتماده.</p>
+      </div>
+
+      <section id="staff-login" class="staff-card login-card">
+        <div class="card-icon">↗</div>
+        <div class="eyebrow">دخول آمن</div>
+        <h2>أهلًا بعودتك</h2>
+        <p>أدخل رمز الموظف للمتابعة.</p>
+        <form id="login-form">
+          <label>رمز الموظف<input id="staff-pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="128" placeholder="••••••" required></label>
+          <button class="primary-button" type="submit">دخول <span aria-hidden="true">←</span></button>
+          <p id="login-message" class="form-message hidden" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="staff-workspace" class="staff-workspace hidden">
+        <div class="workspace-toolbar">
+          <div class="staff-welcome"><span id="staff-avatar" class="staff-avatar">م</span><div><strong id="staff-display-name">الموظف</strong><span>امسح رمز الطلب للبدء</span></div></div>
+          <div class="workspace-actions">
+            <button id="menu-qr-button" class="secondary-button" type="button">QR القائمة</button>
+            <button id="staff-settings-toggle" class="secondary-button" type="button" aria-controls="staff-settings-panel" aria-expanded="false">إعدادات الحساب</button>
+            <button id="logout-button" class="secondary-button" type="button">تسجيل الخروج</button>
+          </div>
+        </div>
+
+        <p id="staff-settings-message" class="form-message hidden" role="alert"></p>
+        <p id="staff-settings-success" class="success-message hidden" role="status"></p>
+
+        <section id="staff-settings-panel" class="staff-settings-panel hidden" aria-labelledby="staff-settings-title">
+          <div class="admin-panel-heading">
+            <div><div class="eyebrow">حساب الموظف</div><h2 id="staff-settings-title">إعدادات الحساب</h2></div>
+          </div>
+          <div class="settings-grid">
+            <form id="staff-profile-form" class="staff-card admin-form settings-form">
+              <h3>الملف الشخصي</h3>
+              <label>الاسم الكامل<input id="staff-profile-name" maxlength="80" autocomplete="off" required></label>
+              <label>الصورة الشخصية<input id="staff-profile-image" type="file" accept="image/jpeg,image/png,image/webp"></label>
+              <div class="image-preview settings-image-preview profile-image-preview">
+                <img id="staff-profile-preview" class="hidden" alt="معاينة صورة الموظف">
+                <span id="staff-profile-placeholder">اختر صورة شخصية</span>
+              </div>
+              <label class="checkbox-label"><input id="staff-profile-image-remove" type="checkbox"> إزالة الصورة المحفوظة</label>
+              <div class="admin-form-actions">
+                <button id="staff-profile-save" class="primary-button" type="submit">حفظ الملف الشخصي</button>
+              </div>
+            </form>
+
+            <form id="staff-pin-form" class="staff-card admin-form settings-form">
+              <h3>تغيير رمز الدخول</h3>
+              <label>رمز الدخول الحالي<input id="staff-current-pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="128" required></label>
+              <label>رمز الدخول الجديد<input id="staff-new-pin" type="password" inputmode="numeric" autocomplete="new-password" minlength="6" maxlength="12" pattern="[0-9]{6,12}" required></label>
+              <label>تأكيد الرمز الجديد<input id="staff-new-pin-confirm" type="password" inputmode="numeric" autocomplete="new-password" minlength="6" maxlength="12" pattern="[0-9]{6,12}" required></label>
+              <p class="form-note">اختر رمزًا من 6 إلى 12 رقمًا. ستُسجّل خارج المنصة بعد تغييره.</p>
+              <div class="admin-form-actions">
+                <button id="staff-pin-save" class="primary-button" type="submit">تغيير رمز الدخول</button>
+              </div>
+            </form>
+          </div>
+          <button id="staff-settings-cancel" class="secondary-button staff-settings-back" type="button">العودة إلى ماسح الطلبات</button>
+        </section>
+
+        <div id="staff-dashboard">
+        <section id="menu-qr-card" class="staff-card menu-qr-card hidden">
+          <div>
+            <div class="eyebrow">رابط قائمة المطعم</div>
+            <h2>اطبع هذا الرمز على الطاولات</h2>
+            <p>يمسح الزبون هذا الرمز لفتح القائمة وإرسال طلبه.</p>
+            <a id="menu-qr-link" class="secondary-button" download="sufra-menu-qr.png">تنزيل رمز القائمة</a>
+          </div>
+          <img id="menu-qr-image" alt="رمز QR لقائمة المطعم">
+        </section>
+
+        <div class="scanner-layout">
+          <section class="staff-card scanner-card">
+            <div class="eyebrow">التحقق من الطلب</div>
+            <h2>امسح رمز الزبون</h2>
+            <p>وجّه الكاميرا نحو رمز QR على شاشة الزبون.</p>
+            <div id="qr-reader" class="qr-reader"></div>
+            <button id="scan-button" class="primary-button" type="button">تشغيل الكاميرا <span aria-hidden="true">⌖</span></button>
+            <div class="manual-entry">
+              <span class="manual-divider"><span>أو أدخل رمز الطلب يدويًا</span></span>
+              <form id="lookup-form">
+                <input id="order-token" autocomplete="off" placeholder="الصق رابط الطلب أو رمزه" aria-label="رابط الطلب أو رمزه">
+                <button class="secondary-button" type="submit">بحث</button>
+              </form>
+            </div>
+            <p id="staff-message" class="form-message hidden" role="alert"></p>
+          </section>
+
+          <section id="order-result" class="staff-card order-result empty-result">
+            <div class="empty-result-art">✳</div>
+            <h2>تفاصيل الطلب تظهر هنا</h2>
+            <p>بعد مسح الرمز، تأكد من الاسم ورقم الطاولة والأطباق قبل التأكيد.</p>
+          </section>
+        </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer"><a class="brand footer-brand" href="/" aria-label="الصفحة الرئيسية" data-site-brand><span class="brand-mark" data-site-logo-mark>س</span><span><span data-site-name>سفرة</span><span class="brand-period">.</span></span></a><span>الطلبات محفوظة بأمان على هذا الجهاز.</span></footer>
+  </div>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="/site-theme.js?v=20261117-2" defer></script>
+  <script src="/image-utils.js?v=20261117-1" defer></script>
+  <script src="/staff.js?v=20261117-4" defer></script>
+</body>
+</html>
